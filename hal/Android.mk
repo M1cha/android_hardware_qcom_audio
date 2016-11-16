@@ -87,6 +87,14 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_MULTI_VOICE_SESSIONS)),true)
 ifneq ($(strip $(AUDIO_FEATURE_ENABLED_INCALL_MUSIC)),false)
     LOCAL_CFLAGS += -DINCALL_MUSIC_ENABLED
 endif
+ifeq ($(strip $(AUDIO_FEATURE_HTC_DUAL_SIM)),true)
+    LOCAL_CFLAGS += -DHTC_DUAL_SIM
+    LOCAL_SRC_FILES += voice_extn/msim_voice_extn.c
+endif
+ifeq ($(strip $(AUDIO_FEATURE_SAMSUNG_DUAL_SIM)),true)
+    LOCAL_CFLAGS += -DSAMSUNG_DUAL_SIM
+    LOCAL_SRC_FILES += voice_extn/msim_voice_extn.c
+endif
 endif
 
 ifneq ($(filter apq8084 msm8974 msm8226 msm8610,$(TARGET_BOARD_PLATFORM)),)
@@ -122,6 +130,10 @@ ifneq ($(strip $(AUDIO_FEATURE_ENABLED_COMPRESS_CAPTURE)),false)
     LOCAL_CFLAGS += -DCOMPRESS_CAPTURE_ENABLED
     LOCAL_SRC_FILES += audio_extn/compress_capture.c
 endif
+endif
+
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_NEW_SAMPLE_RATE)),true)
+    LOCAL_CFLAGS += -DNEW_SAMPLE_RATE_ENABLED
 endif
 
 ifneq ($(filter apq8084 msm8974 msm8226 msm8610,$(TARGET_BOARD_PLATFORM)),)
@@ -169,22 +181,18 @@ endif
 LOCAL_SHARED_LIBRARIES := \
 	liblog \
 	libcutils \
+	libhardware \
 	libtinyalsa \
 	libtinycompress \
 	libaudioroute \
 	libdl \
 	libexpat
 
-ifneq ($(BOARD_AUDIO_AMPLIFIER),)
-    LOCAL_CFLAGS += -DUSES_AUDIO_AMPLIFIER
-    LOCAL_SHARED_LIBRARIES += libaudioamp
-    LOCAL_C_INCLUDES += $(BOARD_AUDIO_AMPLIFIER)
-endif
-
 LOCAL_C_INCLUDES += \
 	external/tinyalsa/include \
 	external/tinycompress/include \
 	external/expat/lib \
+	hardware/libhardware/include \
 	$(call include-path-for, audio-route) \
 	$(call include-path-for, audio-effects) \
 	$(LOCAL_PATH)/$(AUDIO_PLATFORM) \

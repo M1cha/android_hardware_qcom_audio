@@ -63,7 +63,9 @@
 #define MAX_PCM_OFFLOAD_FRAGMENT_SIZE (240 * 1024)
 #define MIN_PCM_OFFLOAD_FRAGMENT_SIZE (4 * 1024)
 
-#define ALIGN( num, to ) (((num) + (to-1)) & (~(to-1)))
+#define DIV_ROUND_UP(x, y) (((x) + (y) - 1)/(y))
+#define ALIGN(x, y) ((y) * DIV_ROUND_UP((x), (y)))
+
 /*
  * This file will have a maximum of 38 bytes:
  *
@@ -113,6 +115,9 @@ struct audio_block_header
 /* Audio calibration related functions */
 typedef void (*acdb_deallocate_t)();
 typedef int  (*acdb_init_t)();
+#ifdef HUAWEI_SOUND_PARAM_PATH
+typedef void (*acdb_set_param_path_t)(char *path);
+#endif
 typedef void (*acdb_send_audio_cal_t)(int, int);
 typedef void (*acdb_send_voice_cal_t)(int, int);
 typedef int (*acdb_reload_vocvoltable_t)(int);
@@ -136,6 +141,9 @@ struct platform_data {
     void                       *acdb_handle;
     int                        voice_feature_set;
     acdb_init_t                acdb_init;
+#ifdef HUAWEI_SOUND_PARAM_PATH
+    acdb_set_param_path_t      acdb_set_param_path;
+#endif
     acdb_deallocate_t          acdb_deallocate;
     acdb_send_audio_cal_t      acdb_send_audio_cal;
     acdb_send_voice_cal_t      acdb_send_voice_cal;
@@ -953,7 +961,15 @@ void *platform_init(struct audio_device *adev)
         if (!my_data->acdb_reload_vocvoltable)
             ALOGE("%s: Could not find the symbol acdb_loader_reload_vocvoltable from %s",
                   __func__, LIB_ACDB_LOADER);
-
+#ifdef HUAWEI_SOUND_PARAM_PATH
+        my_data->acdb_set_param_path = (acdb_set_param_path_t)dlsym(my_data->acdb_handle,
+                                                    "acdb_loader_set_param_path");
+        if (!my_data->acdb_set_param_path)
+            ALOGE("%s: Could not find the symbol acdb_loader_set_param_path from %s",
+                  __func__, LIB_ACDB_LOADER);
+        else
+            my_data->acdb_set_param_path(HUAWEI_SOUND_PARAM_PATH);
+#endif
         my_data->acdb_init = (acdb_init_t)dlsym(my_data->acdb_handle,
                                                     "acdb_loader_init_ACDB");
         if (my_data->acdb_init == NULL)
@@ -1968,6 +1984,20 @@ int platform_set_parameters(void *platform, struct str_parms *parms)
 
     ALOGV_IF(kv_pairs != NULL, "%s: enter: %s", __func__, kv_pairs);
 
+#ifdef PLATFORM_APQ8084
+    err = str_parms_get_str(parms, AUDIO_PARAMETER_KEY_BT_SCO_WB, value, sizeof(value));
+    if (err >= 0) {
+        str_parms_del(parms, AUDIO_PARAMETER_KEY_BT_SCO_WB);
+        if (!strcmp(value, AUDIO_PARAMETER_VALUE_ON)) {
+            my_data->btsco_sample_rate = SAMPLE_RATE_16KHZ;
+            audio_route_apply_path(my_data->adev->audio_route,
+                                   "bt-sco-wb-samplerate");
+            audio_route_update_mixer(my_data->adev->audio_route);
+        } else {
+            my_data->btsco_sample_rate = SAMPLE_RATE_8KHZ;
+        }
+    }
+#else
     err = str_parms_get_int(parms, AUDIO_PARAMETER_KEY_BTSCO, &val);
     if (err >= 0) {
         str_parms_del(parms, AUDIO_PARAMETER_KEY_BTSCO);
@@ -1978,6 +2008,7 @@ int platform_set_parameters(void *platform, struct str_parms *parms)
             audio_route_update_mixer(my_data->adev->audio_route);
         }
     }
+#endif
 
     err = str_parms_get_str(parms, AUDIO_PARAMETER_KEY_SLOWTALK, value, sizeof(value));
     if (err >= 0) {
@@ -2260,8 +2291,11 @@ uint32_t platform_get_pcm_offload_buffer_size(audio_offload_info_t* info)
                      * info->sample_rate
                      * (bits_per_sample >> 3)
                      * popcount(info->channel_mask))/1000;
-    // align with LCM of 2, 4, 6, 8
-    fragment_size = ALIGN( fragment_size, 24 );
+    // To have same PCM samples for all channels, the buffer size requires to
+    // be multiple of (number of channels * bytes per sample)
+    // For writes to succeed, the buffer must be written at address which is multiple of 32
+    // Alignment of 96 satsfies both of the above requirements
+    fragment_size = ALIGN(fragment_size, 96);
     if(fragment_size < MIN_PCM_OFFLOAD_FRAGMENT_SIZE)
         fragment_size = MIN_PCM_OFFLOAD_FRAGMENT_SIZE;
     else if(fragment_size > MAX_PCM_OFFLOAD_FRAGMENT_SIZE)

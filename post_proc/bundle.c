@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
  * Not a Contribution.
  *
  * Copyright (C) 2013 The Android Open Source Project
@@ -272,9 +272,6 @@ int offload_effects_bundle_hal_stop_output(audio_io_handle_t output, int pcm_id)
         goto exit;
     }
 
-    if (out_ctxt->mixer)
-        mixer_close(out_ctxt->mixer);
-
     list_for_each(fx_node, &out_ctxt->effects_list) {
         effect_context_t *fx_ctxt = node_to_item(fx_node,
                                                  effect_context_t,
@@ -282,6 +279,9 @@ int offload_effects_bundle_hal_stop_output(audio_io_handle_t output, int pcm_id)
         if (fx_ctxt->ops.stop)
             fx_ctxt->ops.stop(fx_ctxt, out_ctxt);
     }
+
+    if (out_ctxt->mixer)
+        mixer_close(out_ctxt->mixer);
 
     list_remove(&out_ctxt->outputs_list_node);
 
@@ -641,8 +641,9 @@ int effect_command(effect_handle_t self, uint32_t cmdCode, uint32_t cmdSize,
         if (pCmdData == NULL ||
             cmdSize < (int)(sizeof(effect_param_t) + sizeof(uint32_t)) ||
             pReplyData == NULL ||
-            *replySize < (int)(sizeof(effect_param_t) + sizeof(uint32_t) +
-                               sizeof(uint16_t))) {
+            *replySize < (int)(sizeof(effect_param_t) + sizeof(uint32_t) + sizeof(uint16_t)) ||
+            // constrain memcpy below
+            ((effect_param_t *)pCmdData)->psize > *replySize - sizeof(effect_param_t)) {
             status = -EINVAL;
             ALOGW("EFFECT_CMD_GET_PARAM invalid command cmdSize %d *replySize %d",
                   cmdSize, *replySize);
